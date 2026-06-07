@@ -1,8 +1,18 @@
 @import "tailwindcss";
+@import "../components/agent-elements/agent-ui.css";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #f5f7f2;
+  --foreground: #1f241f;
+  --brand: #106844;
+  --brand-deep: #075137;
+  --muted: rgba(31, 36, 31, 0.6);
+  --soft-surface: rgba(255, 255, 255, 0.62);
+  --hairline: rgba(26, 26, 26, 0.09);
+  --bg-default: #e6edea;
+  --bg-pulsed: #d2e3dc;
+  --bg-user-default: #edebe6;
+  --bg-user-pulsed: #ded7cf;
 }
 
 @theme inline {
@@ -10,17 +20,386 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --font-instrument: var(--font-instrument-sans);
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-instrument-sans), var(--font-geist-sans), system-ui,
+    sans-serif;
+}
+
+button {
+  font: inherit;
+}
+
+input,
+textarea {
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+::selection {
+  background: rgba(16, 104, 68, 0.16);
+}
+
+.glass-surface {
+  background: var(--soft-surface);
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.68),
+    0 28px 56px -34px rgba(7, 81, 55, 0.42);
+  backdrop-filter: blur(18px);
+}
+
+.task-card {
+  background: rgba(255, 255, 255, 0.6);
+  backdrop-filter: blur(10px);
+}
+
+.phone-shadow {
+  box-shadow:
+    0 40px 80px -48px rgba(16, 104, 68, 0.5),
+    0 18px 48px -34px rgba(31, 36, 31, 0.45);
+}
+
+.chat-shell {
+  background-color: var(--bg-default);
+  background-image: linear-gradient(
+    to bottom,
+    #ffffff 0%,
+    rgba(244, 248, 246, 0.94) 46%,
+    rgba(230, 237, 234, 0.78) 100%
+  );
+}
+
+.chat-shell .chat-messages {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.chat-shell .chat-messages::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+  background: transparent;
+}
+
+.chat-composer-fade {
+  pointer-events: none;
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  z-index: 9;
+  height: 200px;
+  background: linear-gradient(
+    to top,
+    var(--bg-default) 0%,
+    var(--bg-default) 58%,
+    transparent 100%
+  );
+}
+
+.chat-shell-user {
+  --bg-default: var(--bg-user-default);
+  --bg-pulsed: var(--bg-user-pulsed);
+  background-image: linear-gradient(
+    to bottom,
+    #ffffff 0%,
+    rgba(250, 249, 246, 0.94) 46%,
+    rgba(237, 235, 230, 0.78) 100%
+  );
+}
+
+.chat-shell-coach {
+  --bg-default: #e6edea;
+  --bg-pulsed: #d2e3dc;
+  background-image: linear-gradient(to bottom, #ffffff 0%, #e6edea 62.678%);
+}
+
+.is-streaming {
+  background-size: 100% 100%, 180% 180%, 160% 160%;
+  animation:
+    pulse-bg 2s ease-in-out infinite,
+    thinking-gradient-drift 6s ease-in-out infinite;
+}
+
+.chat-shell-coach.is-streaming {
+  background-image:
+    radial-gradient(
+      circle at 24% 88%,
+      rgba(16, 104, 68, 0.16),
+      transparent 34%
+    ),
+    radial-gradient(
+      circle at 78% 18%,
+      rgba(177, 197, 180, 0.34),
+      transparent 36%
+    ),
+    linear-gradient(
+      135deg,
+      rgba(255, 255, 255, 0.98) 0%,
+      rgba(232, 242, 238, 0.94) 48%,
+      rgba(210, 227, 220, 0.78) 100%
+    );
+}
+
+.chat-shell-user.is-streaming {
+  background-image:
+    radial-gradient(
+      circle at 26% 88%,
+      rgba(242, 135, 5, 0.16),
+      transparent 34%
+    ),
+    radial-gradient(
+      circle at 78% 18%,
+      rgba(242, 160, 154, 0.28),
+      transparent 36%
+    ),
+    linear-gradient(
+      135deg,
+      rgba(255, 255, 255, 0.98) 0%,
+      rgba(250, 246, 240, 0.94) 48%,
+      rgba(222, 215, 207, 0.78) 100%
+    );
+}
+
+.thinking-card {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.78),
+    0 22px 42px -34px rgba(7, 81, 55, 0.48);
+}
+
+.thinking-step {
+  animation: thinking-step 1.8s ease-in-out infinite;
+  animation-delay: calc(var(--step-index) * 220ms);
+}
+
+.thinking-center {
+  animation: thinking-center-enter 480ms cubic-bezier(0.16, 1, 0.3, 1) 160ms
+    both;
+}
+
+.thinking-rise {
+  animation: thinking-rise 480ms cubic-bezier(0.16, 1, 0.3, 1) 120ms both;
+}
+
+@keyframes thinking-rise {
+  from {
+    opacity: 0;
+    transform: translateY(16px) scale(0.96);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes thinking-center-enter {
+  from {
+    opacity: 0;
+    transform: translateY(calc(-50% + 16px)) scale(0.96);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(-50%) scale(1);
+  }
+}
+
+.message-enter {
+  animation: message-enter 360ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.task-enter {
+  animation: message-enter 420ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation-delay: calc(var(--index) * 80ms);
+}
+
+.voice-orb-enter {
+  animation: voice-orb-slide-in 640ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  transform: translateX(-50%);
+}
+
+.voice-orb {
+  animation:
+    orb-morph var(--orb-speed, 4s) ease-in-out infinite,
+    orb-ring var(--orb-speed, 4s) ease-in-out infinite;
+  box-shadow: var(--orb-shadow, 0 18px 42px -26px rgba(3, 55, 38, 0.75));
+  will-change: transform, border-radius, box-shadow;
+}
+
+@keyframes orb-morph {
+  0%,
+  100% {
+    transform: scale(1);
+    border-radius: 50%;
+  }
+
+  25% {
+    transform: scale(var(--orb-scale-a, 1.045));
+    border-radius: 47% 53% 55% 45% / 54% 47% 53% 46%;
+  }
+
+  50% {
+    transform: scale(var(--orb-scale-b, 1.02));
+    border-radius: 54% 46% 47% 53% / 46% 54% 46% 54%;
+  }
+
+  75% {
+    transform: scale(var(--orb-scale-a, 1.045));
+    border-radius: 50% 50% 46% 54% / 55% 45% 55% 45%;
+  }
+}
+
+@keyframes orb-ring {
+  0%,
+  100% {
+    box-shadow:
+      var(--orb-shadow, 0 18px 42px -26px rgba(3, 55, 38, 0.75)),
+      0 0 0 0 var(--orb-ring, rgba(65, 168, 119, 0.5));
+  }
+
+  60% {
+    box-shadow:
+      var(--orb-shadow, 0 18px 42px -26px rgba(3, 55, 38, 0.75)),
+      0 0 0 22px rgba(0, 0, 0, 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .voice-orb {
+    animation: none;
+  }
+}
+
+.voice-copy-fade {
+  animation: voice-copy-fade-out 260ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.voice-input-enter {
+  animation: voice-input-fade-in 420ms cubic-bezier(0.16, 1, 0.3, 1) 140ms
+    both;
+}
+
+.voice-wave-bar {
+  animation: voice-wave-pulse 1200ms ease-in-out infinite;
+  animation-delay: calc(var(--bar-index) * 36ms);
+  height: var(--bar-height);
+  transform-origin: center;
+}
+
+@keyframes pulse-bg {
+  0%,
+  100% {
+    background-color: var(--bg-default);
+  }
+
+  50% {
+    background-color: var(--bg-pulsed);
+  }
+}
+
+@keyframes thinking-gradient-drift {
+  0%,
+  100% {
+    background-position:
+      0% 0%,
+      100% 0%,
+      0% 0%;
+  }
+
+  50% {
+    background-position:
+      0% 0%,
+      35% 100%,
+      100% 100%;
+  }
+}
+
+@keyframes thinking-step {
+  0%,
+  100% {
+    opacity: 0.48;
+    transform: translateX(0);
+  }
+
+  45% {
+    opacity: 1;
+    transform: translateX(3px);
+  }
+}
+
+@keyframes message-enter {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.98);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes voice-copy-fade-out {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  to {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+}
+
+@keyframes voice-input-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes voice-wave-pulse {
+  0%,
+  100% {
+    transform: scaleY(0.72);
+    opacity: 0.58;
+  }
+
+  45% {
+    transform: scaleY(1.18);
+    opacity: 1;
+  }
+}
+
+@keyframes voice-orb-slide-in {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(42px) scale(0.88);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0) scale(1);
+  }
+}
+
+@media (max-width: 430px) {
+  body {
+    background: #e8efeb;
+  }
 }

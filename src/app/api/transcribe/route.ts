@@ -3,7 +3,9 @@ import OpenAI from "openai";
 export const runtime = "nodejs";
 
 export async function POST(request: Request) {
-  if (!process.env.OPENAI_API_KEY) {
+  const apiKey = process.env.OPENAI_API_KEY;
+
+  if (!apiKey || apiKey.includes("REPLACE_ME")) {
     return Response.json(
       { error: "OPENAI_API_KEY is not configured." },
       { status: 500 },
@@ -18,14 +20,23 @@ export async function POST(request: Request) {
   }
 
   const client = new OpenAI({
-    apiKey: process.env.OPENAI_API_KEY,
+    apiKey,
     baseURL: process.env.OPENAI_BASE_URL,
   });
 
-  const transcription = await client.audio.transcriptions.create({
-    file: audio,
-    model: process.env.OPENAI_TRANSCRIPTION_MODEL ?? "whisper-1",
-  });
+  try {
+    const transcription = await client.audio.transcriptions.create({
+      file: audio,
+      model: process.env.OPENAI_TRANSCRIPTION_MODEL ?? "whisper-1",
+    });
 
-  return Response.json({ text: transcription.text.trim() });
+    return Response.json({ text: transcription.text.trim() });
+  } catch (error) {
+    const message =
+      error instanceof OpenAI.APIError
+        ? `Transcription failed (${error.status}). Check your OpenAI API key.`
+        : "Transcription failed. Please try again.";
+
+    return Response.json({ error: message }, { status: 502 });
+  }
 }

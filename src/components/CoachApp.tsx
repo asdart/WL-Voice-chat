@@ -17,6 +17,10 @@ import type { CSSProperties, KeyboardEvent } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { IconChevronRight } from "@tabler/icons-react";
 import { TextShimmer } from "./agent-elements/text-shimmer";
+import VoiceOrbParticles from "./VoiceOrbParticles";
+import VoiceOrbMesh from "./VoiceOrbMesh";
+
+type OrbVariant = "particles" | "mesh";
 
 type Message = {
   id: string;
@@ -98,6 +102,7 @@ export function CoachApp() {
   const [chatTitle, setChatTitle] = useState("Marketing coach");
   const [chatMode, setChatMode] = useState<"general" | "financial">("general");
   const [voiceMode, setVoiceMode] = useState<"user" | "ai" | null>(null);
+  const [orbVariant, setOrbVariant] = useState<OrbVariant>("particles");
   const [voiceStatus, setVoiceStatus] = useState<VoiceStatus>("idle");
   const [voiceElapsed, setVoiceElapsed] = useState(0);
   const [voiceTranscript, setVoiceTranscript] = useState("");
@@ -281,13 +286,25 @@ export function CoachApp() {
       utterance.pitch = 1;
 
       let decayTimer = 0;
+      let fallbackTimer = 0;
+      let pollTimer = 0;
+      let resolved = false;
+      let hasSpoken = false;
+
       const finish = () => {
+        if (resolved) return;
+        resolved = true;
         window.clearTimeout(decayTimer);
+        window.clearTimeout(fallbackTimer);
+        window.clearInterval(pollTimer);
         setAiLevel(0);
         resolve();
       };
 
-      utterance.onstart = () => setAiLevel(prefersReducedMotion ? 0.6 : 0.45);
+      utterance.onstart = () => {
+        hasSpoken = true;
+        setAiLevel(prefersReducedMotion ? 0.6 : 0.45);
+      };
       utterance.onboundary = () => {
         if (prefersReducedMotion) return;
         setAiLevel(1);
@@ -299,6 +316,24 @@ export function CoachApp() {
 
       window.speechSynthesis.cancel();
       window.speechSynthesis.speak(utterance);
+
+      // Primary safety net: macOS Chrome/Safari frequently never fire `onend`.
+      // Poll the engine's own `speaking` flag and finish once it has actually
+      // started and then stopped — this tracks real playback length precisely.
+      pollTimer = window.setInterval(() => {
+        if (window.speechSynthesis.speaking) {
+          hasSpoken = true;
+          return;
+        }
+        if (hasSpoken) finish();
+      }, 250);
+
+      // Last-resort net (in case speech never starts at all): use a realistic
+      // ~430 ms/word estimate plus a generous buffer so it only trips if the
+      // engine is truly stuck — never while the coach is still talking.
+      const wordCount = text.trim().split(/\s+/).length;
+      const estimatedMs = wordCount * 430 + 6000;
+      fallbackTimer = window.setTimeout(finish, estimatedMs);
     });
   }, []);
 
@@ -367,7 +402,16 @@ export function CoachApp() {
         });
 
         if (!response.ok) {
-          throw new Error("Transcription failed.");
+          const { error } = (await response
+            .json()
+            .catch(() => ({ error: "" }))) as { error?: string };
+          setVoiceStatus("error");
+          setVoiceNotice(
+            error?.includes("OPENAI_API_KEY")
+              ? "Add your OpenAI API key to .env.local and restart the dev server."
+              : error || "I could not transcribe that. Try speaking again.",
+          );
+          return;
         }
 
         const { text } = (await response.json()) as { text?: string };
@@ -387,6 +431,18 @@ export function CoachApp() {
     },
     [handleVoiceTranscriptComplete, isLoading],
   );
+
+  // Barge-in: the user started talking while the coach was speaking. Stop the
+  // TTS immediately and switch to listening so their input is captured and
+  // appended to the conversation.
+  const handleBargeIn = useCallback(() => {
+    window.speechSynthesis?.cancel();
+    setAiLevel(0);
+    setVoiceTranscript("");
+    setVoiceNotice("");
+    setVoiceMode("user");
+    setVoiceStatus("listening");
+  }, []);
 
   function handleComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
     if (event.key === "Enter" && !event.shiftKey) {
@@ -451,6 +507,23 @@ export function CoachApp() {
       setView("chat");
     }
     window.speechSynthesis?.cancel();
+    setOrbVariant("particles");
+    setVoiceTranscript("");
+    setVoiceNotice("");
+    setVoiceElapsed(0);
+    setVoiceStatus("listening");
+    setVoiceMode("user");
+  }
+
+  // Opens voice mode showing the WebGL mesh orb (used to preview the new orb
+  // from the "Create 3 recommended meal combinations" dashboard task).
+  function openOrbPreview(taskTitle: string) {
+    setActiveTaskTitle(taskTitle);
+    setChatTitle("Meal combinations");
+    setChatMode("general");
+    setView("chat");
+    window.speechSynthesis?.cancel();
+    setOrbVariant("mesh");
     setVoiceTranscript("");
     setVoiceNotice("");
     setVoiceElapsed(0);
@@ -487,6 +560,7 @@ export function CoachApp() {
             aiLevel={aiLevel}
             elapsedSeconds={voiceElapsed}
             notice={voiceNotice}
+            orbVariant={orbVariant}
             phase={voiceMode}
             status={voiceStatus}
             thinkingSteps={thinkingSteps}
@@ -496,8 +570,10 @@ export function CoachApp() {
             onClose={closeVoiceMode}
             onNoticeChange={setVoiceNotice}
             onStatusChange={setVoiceStatus}
-            onAudioComplete={handleVoiceAudioComplete}
-            onTogglePhase={() =>
+          onAudioComplete={handleVoiceAudioComplete}
+          onTranscriptComplete={handleVoiceTranscriptComplete}
+          onInterrupt={handleBargeIn}
+          onTogglePhase={() =>
               setVoiceMode((current) => (current === "user" ? "ai" : "user"))
             }
           />
@@ -518,6 +594,7 @@ export function CoachApp() {
               setActiveTaskTitle(taskTitle);
               void sendMessage(prompt);
             }}
+            onShowOrb={openOrbPreview}
             completedTasks={completedTasks}
           />
         ) : (
@@ -556,6 +633,7 @@ function HomeScreen({
   onOpenChat,
   onSend,
   onTaskPrompt,
+  onShowOrb,
   completedTasks,
 }: {
   input: string;
@@ -566,6 +644,7 @@ function HomeScreen({
   onOpenChat: () => void;
   onSend: () => void;
   onTaskPrompt: (prompt: string, taskTitle: string) => void;
+  onShowOrb: (taskTitle: string) => void;
   completedTasks: string[];
 }) {
   return (
@@ -601,6 +680,10 @@ function HomeScreen({
                   if (isDone) return;
                   if (task.action === "Generate now") {
                     onFinancialSpot();
+                    return;
+                  }
+                  if (task.action === "Show me") {
+                    onShowOrb(task.title);
                     return;
                   }
                   if (task.prompt) onTaskPrompt(task.prompt, task.title);
@@ -1025,11 +1108,14 @@ function VoiceModeScreen({
   elapsedSeconds,
   notice,
   onAudioComplete,
+  onTranscriptComplete,
+  onInterrupt,
   onBack,
   onClose,
   onNoticeChange,
   onStatusChange,
   onTogglePhase,
+  orbVariant,
   phase,
   status,
   thinkingSteps,
@@ -1040,11 +1126,14 @@ function VoiceModeScreen({
   elapsedSeconds: number;
   notice: string;
   onAudioComplete: (audio: Blob) => void;
+  onTranscriptComplete: (transcript: string) => void;
+  onInterrupt: () => void;
   onBack: () => void;
   onClose: () => void;
   onNoticeChange: (notice: string) => void;
   onStatusChange: (status: VoiceStatus) => void;
   onTogglePhase: () => void;
+  orbVariant: OrbVariant;
   phase: "user" | "ai";
   status: VoiceStatus;
   thinkingSteps: string[];
@@ -1063,6 +1152,118 @@ function VoiceModeScreen({
 
   useEffect(() => {
     if (status !== "listening") return;
+
+    // When configured for Whisper, skip the Web Speech API entirely (it streams to
+    // Google's servers and is blocked on some networks) and go straight to Path B.
+    const preferWhisper = process.env.NEXT_PUBLIC_VOICE_PROVIDER === "whisper";
+
+    // ── Path A: Web Speech API (no API key needed; works on Chrome/Safari/Edge) ──
+    interface ISpeechRecognition extends EventTarget {
+      continuous: boolean; interimResults: boolean; lang: string;
+      start(): void; abort(): void;
+      onresult: ((event: { results: { [i: number]: { isFinal: boolean; [j: number]: { transcript: string } } }; resultIndex: number }) => void) | null;
+      onend: (() => void) | null;
+      onerror: ((event: { error: string }) => void) | null;
+    }
+    type SpeechRecognitionCtor = new () => ISpeechRecognition;
+    const SpeechRecCtor: SpeechRecognitionCtor | undefined =
+      (window as unknown as { SpeechRecognition?: SpeechRecognitionCtor }).SpeechRecognition ??
+      (window as unknown as { webkitSpeechRecognition?: SpeechRecognitionCtor }).webkitSpeechRecognition;
+
+    if (SpeechRecCtor && !preferWhisper) {
+      const recognition = new SpeechRecCtor();
+      recognition.continuous = false;
+      recognition.interimResults = true;
+      recognition.lang = "en-US";
+
+      let finalTranscript = "";
+      let cleanedUp = false;
+      let animFrame = 0;
+
+      // Gentle idle pulse for the orb — no competing getUserMedia while SpeechRecognition
+      // already holds the mic (a second concurrent grab triggers audio-capture errors on macOS).
+      let phase = 0;
+      const pulse = () => {
+        if (cleanedUp) return;
+        phase += 0.025;
+        setVolumeLevel(0.18 + Math.sin(phase) * 0.12);
+        animFrame = requestAnimationFrame(pulse);
+      };
+      animFrame = requestAnimationFrame(pulse);
+
+      const cleanup = () => {
+        cleanedUp = true;
+        window.cancelAnimationFrame(animFrame);
+        setVolumeLevel(0);
+        try { recognition.abort(); } catch { /* noop */ }
+      };
+
+      recognition.onresult = (event: { results: { [i: number]: { isFinal: boolean; [j: number]: { transcript: string } } }; resultIndex: number }) => {
+        finalTranscript = "";
+        for (let i = 0; i < Object.keys(event.results).length; i++) {
+          if (event.results[i].isFinal) finalTranscript += event.results[i][0].transcript;
+        }
+        // Briefly spike the orb when speech is detected
+        setVolumeLevel(0.75);
+      };
+
+      recognition.onend = () => {
+        if (cleanedUp) return;
+        cleanedUp = true;
+        window.cancelAnimationFrame(animFrame);
+        setVolumeLevel(0);
+
+        const trimmed = finalTranscript.trim();
+        if (!trimmed) {
+          onNoticeChange("I didn't catch that. Try speaking again.");
+          onStatusChange("idle");
+          window.setTimeout(() => onStatusChange("listening"), 300);
+          return;
+        }
+        onTranscriptComplete(trimmed);
+      };
+
+      recognition.onerror = (event: { error: string }) => {
+        // "aborted" fires when we call recognition.abort() ourselves — ignore it.
+        if (event.error === "aborted") return;
+        if (cleanedUp) return;
+        cleanedUp = true;
+        window.cancelAnimationFrame(animFrame);
+        setVolumeLevel(0);
+
+        if (event.error === "not-allowed") {
+          onStatusChange("error");
+          onNoticeChange("Microphone access is blocked. Allow it in your browser settings.");
+        } else if (event.error === "no-speech") {
+          onNoticeChange("I'm listening. Speak a little closer to the mic.");
+          onStatusChange("idle");
+          window.setTimeout(() => onStatusChange("listening"), 300);
+        } else if (event.error === "network") {
+          // Chrome sends audio to Google — fail gracefully and try the local fallback path
+          onNoticeChange("Speech service unavailable. Tap the mic and try again.");
+          onStatusChange("idle");
+          window.setTimeout(() => onStatusChange("listening"), 400);
+        } else {
+          onStatusChange("error");
+          onNoticeChange("Could not access the microphone. Check your browser permissions and try again.");
+        }
+      };
+
+      try {
+        recognition.start();
+        onStatusChange("listening");
+        onNoticeChange("");
+      } catch {
+        cleanedUp = true;
+        window.cancelAnimationFrame(animFrame);
+        onStatusChange("error");
+        onNoticeChange("Could not start voice recognition. Try refreshing the page.");
+      }
+
+      return cleanup;
+    }
+
+    // ── Path B: MediaRecorder + Whisper fallback (requires OPENAI_API_KEY) ──
     if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
       onStatusChange("unsupported");
       onNoticeChange("Voice recording is not supported in this browser.");
@@ -1178,24 +1379,101 @@ function VoiceModeScreen({
     };
   }, [
     onAudioComplete,
+    onTranscriptComplete,
     onNoticeChange,
     onStatusChange,
     status,
   ]);
 
+  // ── Barge-in: detect the user speaking while the coach is talking ──
+  // While the AI is speaking we monitor the mic; if sustained speech is heard,
+  // we interrupt the TTS and hand control back to the user. A relatively high
+  // threshold + sustained window (plus echo cancellation) avoids the AI's own
+  // voice from the speakers triggering a false interrupt.
+  useEffect(() => {
+    if (status !== "speaking") return;
+    if (!navigator.mediaDevices?.getUserMedia) return;
+
+    let audioContext: AudioContext | null = null;
+    let animationFrame = 0;
+    let stream: MediaStream | null = null;
+    let stopped = false;
+    let loudSince = 0;
+
+    const stop = () => {
+      if (stopped) return;
+      stopped = true;
+      window.cancelAnimationFrame(animationFrame);
+      stream?.getTracks().forEach((track) => track.stop());
+      void audioContext?.close();
+    };
+
+    void navigator.mediaDevices
+      .getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      })
+      .then((capturedStream) => {
+        if (stopped) {
+          capturedStream.getTracks().forEach((track) => track.stop());
+          return;
+        }
+        stream = capturedStream;
+        audioContext = new AudioContext();
+        void audioContext.resume();
+        const source = audioContext.createMediaStreamSource(capturedStream);
+        const analyser = audioContext.createAnalyser();
+        const samples = new Uint8Array(analyser.fftSize);
+        source.connect(analyser);
+
+        const monitor = () => {
+          if (stopped) return;
+          analyser.getByteTimeDomainData(samples);
+          const volume =
+            samples.reduce((sum, value) => sum + Math.abs(value - 128), 0) /
+            samples.length;
+          const now = performance.now();
+
+          if (volume > 14) {
+            loudSince ||= now;
+            if (now - loudSince > 300) {
+              stop();
+              onInterrupt();
+              return;
+            }
+          } else {
+            loudSince = 0;
+          }
+
+          animationFrame = window.requestAnimationFrame(monitor);
+        };
+        monitor();
+      })
+      .catch(() => {
+        /* barge-in is best-effort; ignore mic failures here */
+      });
+
+    return stop;
+  }, [status, onInterrupt]);
+
+  // TEST: hide the voice-synced background gradient to preview the orb on a
+  // clean backdrop. Flip back to true to restore the reactive background.
+  const showVoiceBackdrop = false;
+
   return (
     <>
-      <div
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-0 z-[1] transition-opacity ease-out"
-        style={{
-          opacity: isUserSpeaking ? volumeLevel * 0.28 : aiLevel * 0.6,
-          transitionDuration: isUserSpeaking ? "75ms" : "140ms",
-          background: isUserSpeaking
-            ? "linear-gradient(to bottom, transparent 30%, rgba(180,155,115,0.7) 100%)"
-            : "linear-gradient(to bottom, transparent 20%, rgba(16,80,52,0.6) 100%)",
-        }}
-      />
+      {showVoiceBackdrop ? (
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 z-[1] transition-opacity ease-out"
+          style={{
+            opacity: isUserSpeaking ? volumeLevel * 0.28 : aiLevel * 0.6,
+            transitionDuration: isUserSpeaking ? "75ms" : "140ms",
+            background: isUserSpeaking
+              ? "linear-gradient(to bottom, transparent 30%, rgba(180,155,115,0.7) 100%)"
+              : "linear-gradient(to bottom, transparent 20%, rgba(16,80,52,0.6) 100%)",
+          }}
+        />
+      ) : null}
       <div className="absolute inset-x-0 top-0 z-10 bg-white">
         <div className="flex items-center justify-between px-6 pb-5 pt-[68px]">
           <button
@@ -1221,7 +1499,7 @@ function VoiceModeScreen({
 
       <section
         ref={scrollRef}
-        className="chat-messages flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden px-8 pb-[248px] pt-[232px] [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+        className="chat-messages flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden px-8 pb-[320px] pt-[232px] [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
       >
         <p className="message-enter whitespace-pre-wrap text-base font-medium leading-7 tracking-[-0.2px] text-[#080c09]">
           {financialSpotMessages[0].content}
@@ -1243,39 +1521,34 @@ function VoiceModeScreen({
         ) : null}
       </section>
 
-      <div className="voice-orb-enter absolute left-1/2 top-[628px]">
+      <div className="voice-orb-enter absolute left-1/2 top-[600px]">
         <button
           aria-label={
             isUserSpeaking
               ? "Preview AI speaking color"
               : "Preview user speaking color"
           }
-          className={`voice-orb size-[88px] rounded-full transition-[background] duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] ${
-            isUserSpeaking
-              ? "bg-[radial-gradient(circle_at_45%_28%,#d31f05_0%,#f28705_36%,#f6c55e_62%,#f2a09a_100%)]"
-              : "bg-[radial-gradient(circle_at_48%_28%,#031714_0%,#0b533b_42%,#41a877_70%,#b1c5b4_100%)]"
-          }`}
+          className="block rounded-full transition active:scale-[0.98]"
           onClick={onTogglePhase}
-          style={
-            {
-              "--orb-speed":
-                status === "speaking"
-                  ? "1.9s"
-                  : status === "processing"
-                    ? "2.6s"
-                    : "4s",
-              "--orb-scale-a": status === "speaking" ? "1.08" : "1.045",
-              "--orb-scale-b": status === "speaking" ? "1.05" : "1.02",
-              "--orb-shadow": isUserSpeaking
-                ? "0 18px 42px -26px rgba(196,63,8,0.75)"
-                : "0 18px 42px -26px rgba(3,55,38,0.75)",
-              "--orb-ring": isUserSpeaking
-                ? "rgba(242,135,5,0.5)"
-                : "rgba(65,168,119,0.5)",
-            } as CSSProperties
-          }
           type="button"
         >
+          {orbVariant === "mesh" ? (
+            <VoiceOrbMesh
+              speaker={isUserSpeaking ? "user" : "ai"}
+              level={isUserSpeaking ? volumeLevel : aiLevel}
+              surface="light"
+              size={128}
+            />
+          ) : (
+            <VoiceOrbParticles
+              speaker={isUserSpeaking ? "user" : "ai"}
+              level={isUserSpeaking ? volumeLevel : aiLevel}
+              userColor="#F28705"
+              aiColor="#106844"
+              surface="light"
+              size={128}
+            />
+          )}
           <span className="sr-only">
             {isUserSpeaking ? "User speaking" : "AI speaking"}
           </span>
@@ -1284,6 +1557,7 @@ function VoiceModeScreen({
 
       <VoiceComposer
         elapsedSeconds={elapsedSeconds}
+        level={isUserSpeaking ? volumeLevel : aiLevel}
         onClose={onClose}
         status={status}
       />
@@ -1293,10 +1567,12 @@ function VoiceModeScreen({
 
 function VoiceComposer({
   elapsedSeconds,
+  level,
   onClose,
   status,
 }: {
   elapsedSeconds: number;
+  level: number;
   onClose: () => void;
   status: VoiceStatus;
 }) {
@@ -1304,6 +1580,10 @@ function VoiceComposer({
     6, 10, 5, 13, 8, 16, 7, 11, 14, 6, 17, 9, 5, 12, 15, 7, 18, 4, 10, 6,
     14, 8, 16, 5,
   ];
+  // Drive the waveform from the live voice level: bars collapse to a flat 1px
+  // line when silent and rise toward their full height as the level increases.
+  const maxBar = Math.max(...waveformBars);
+  const activeLevel = Math.max(0, Math.min(level, 1));
   const statusLabel =
     status === "speaking"
       ? "Speaking"
@@ -1312,55 +1592,49 @@ function VoiceComposer({
         : formatTimer(elapsedSeconds);
 
   return (
-    <div className="absolute inset-x-0 bottom-0 flex w-full items-center gap-2 px-4 pb-10 pt-5">
-      <button
-        aria-label="Create a new task"
-        className="glass-surface flex size-14 shrink-0 items-center justify-center rounded-full text-[#9aa29a] transition active:scale-95"
-        type="button"
-      >
-        <Plus size={20} weight="bold" />
-      </button>
+    <div className="absolute inset-x-0 bottom-0 flex w-full items-center px-4 pb-10 pt-5">
+      <div className="flex w-full items-center gap-4 rounded-[24px] border border-[rgba(26,26,26,0.09)] bg-[rgba(255,255,255,0.36)] p-2 shadow-[0px_169px_47px_0px_rgba(0,0,0,0),0px_108px_43px_0px_rgba(0,0,0,0.01),0px_61px_37px_0px_rgba(0,0,0,0.02),0px_27px_27px_0px_rgba(0,0,0,0.04),0px_7px_15px_0px_rgba(0,0,0,0.04)] backdrop-blur-[20px]">
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          <button
+            aria-label="Create a new task"
+            className="flex shrink-0 items-center justify-center rounded-[24px] p-2 text-[#9aa29a] transition active:scale-95"
+            type="button"
+          >
+            <Plus size={20} weight="bold" />
+          </button>
 
-      <div className="glass-surface flex h-14 min-w-0 flex-1 items-center gap-2 rounded-full py-1 pl-5 pr-1">
-        <div className="relative flex min-w-0 flex-1 items-center justify-between overflow-hidden pr-2">
-          <div className="voice-copy-fade absolute inset-y-0 left-0 flex items-center text-base text-[#a2aaa3]">
-            Ask me anything...
-          </div>
-          <Microphone
-            className="voice-copy-fade absolute right-0 text-[#9ba49c]"
-            size={20}
-          />
-
-          <div className="voice-input-enter flex h-6 w-full items-center justify-between gap-3">
+          <div className="voice-input-enter flex min-w-0 flex-1 items-center justify-between gap-3">
             <div
               aria-hidden="true"
               className="flex h-4 w-[116px] items-center gap-[2px] text-[#858a86]"
             >
-              {waveformBars.map((height, index) => (
-                <span
-                  className="voice-wave-bar w-px rounded-full bg-current"
-                  key={`${height}-${index}`}
-                  style={
-                    {
-                      "--bar-height": `${height}px`,
-                      "--bar-index": index,
-                    } as CSSProperties
-                  }
-                />
-              ))}
+              {waveformBars.map((weight, index) => {
+                const barHeight = Math.max(
+                  1,
+                  activeLevel * (weight / maxBar) * 15,
+                );
+                return (
+                  <span
+                    className="w-px rounded-full bg-current transition-[height] duration-100 ease-out"
+                    key={`${weight}-${index}`}
+                    style={{ height: `${barHeight}px` }}
+                  />
+                );
+              })}
             </div>
-            <span className="shrink-0 font-sans text-base leading-6 tracking-[-0.16px] text-[#a2aaa3]">
+            <span className="shrink-0 font-sans text-base leading-6 tracking-[-0.16px] text-[rgba(26,26,26,0.36)]">
               {statusLabel}
             </span>
           </div>
         </div>
+
         <button
           aria-label="Close voice mode"
-          className="flex size-11 items-center justify-center rounded-full bg-white text-[#8b928c] shadow-[0_10px_24px_-18px_rgba(31,36,31,0.7)] transition active:scale-95"
+          className="flex shrink-0 items-center justify-center rounded-[24px] bg-white p-2 text-[#8b928c] shadow-[0_10px_24px_-18px_rgba(31,36,31,0.7)] transition active:scale-95"
           onClick={onClose}
           type="button"
         >
-          <X size={18} weight="bold" />
+          <X size={20} weight="bold" />
         </button>
       </div>
     </div>

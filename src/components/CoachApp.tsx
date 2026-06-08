@@ -3,8 +3,11 @@
 import {
   ArrowLeft,
   ArrowUp,
+  Camera,
   Check,
   DotsThree,
+  FilePlus,
+  Image as ImageIcon,
   List,
   Microphone,
   NotePencil,
@@ -15,12 +18,10 @@ import {
 } from "@phosphor-icons/react";
 import type { CSSProperties, KeyboardEvent } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { IconChevronRight } from "@tabler/icons-react";
 import { TextShimmer } from "./agent-elements/text-shimmer";
-import VoiceOrbParticles from "./VoiceOrbParticles";
-import VoiceOrbMesh from "./VoiceOrbMesh";
-
-type OrbVariant = "particles" | "mesh";
+import VoiceOrbCluster from "./VoiceOrbCluster";
 
 type Message = {
   id: string;
@@ -99,10 +100,10 @@ const fallbackCoachReply =
 
 export function CoachApp() {
   const [view, setView] = useState<"home" | "chat">("home");
+  const [viewPhase, setViewPhase] = useState<"idle" | "exit" | "enter">("idle");
   const [chatTitle, setChatTitle] = useState("Marketing coach");
   const [chatMode, setChatMode] = useState<"general" | "financial">("general");
   const [voiceMode, setVoiceMode] = useState<"user" | "ai" | null>(null);
-  const [orbVariant, setOrbVariant] = useState<OrbVariant>("particles");
   const [voiceStatus, setVoiceStatus] = useState<VoiceStatus>("idle");
   const [voiceElapsed, setVoiceElapsed] = useState(0);
   const [voiceTranscript, setVoiceTranscript] = useState("");
@@ -117,6 +118,21 @@ export function CoachApp() {
   const [activeTaskTitle, setActiveTaskTitle] = useState<string | null>(null);
   const requestId = useRef(0);
   const isVoiceOpen = voiceMode !== null;
+
+  // Animated navigation: play exit on current screen, swap, then play enter.
+  const navigateTo = useCallback(
+    (next: "home" | "chat", afterSwap?: () => void) => {
+      if (next === view) { afterSwap?.(); return; }
+      setViewPhase("exit");
+      window.setTimeout(() => {
+        setView(next);
+        afterSwap?.();
+        setViewPhase("enter");
+        window.setTimeout(() => setViewPhase("idle"), 400);
+      }, 220);
+    },
+    [view],
+  );
 
   useEffect(() => {
     if (!isVoiceOpen) return;
@@ -256,7 +272,7 @@ export function CoachApp() {
     if (view !== "chat") {
       setChatTitle("Marketing coach");
       setChatMode("general");
-      setView("chat");
+      navigateTo("chat");
     }
     setVoiceMode(null);
     setInput("");
@@ -463,7 +479,7 @@ export function CoachApp() {
     setInput("");
     setError("");
     setIsLoading(false);
-    setView("chat");
+    navigateTo("chat");
 
     // Stream the intro text word-by-word like a real chat response
     const fullText = financialSpotMessages[0].content;
@@ -497,17 +513,16 @@ export function CoachApp() {
     setVoiceMode(null);
     setVoiceStatus("idle");
     setIsLoading(false);
-    setView("home");
+    navigateTo("home");
   }
 
   function openVoiceMode() {
     if (view !== "chat") {
       setChatTitle("Marketing coach");
       setChatMode("general");
-      setView("chat");
+      navigateTo("chat");
     }
     window.speechSynthesis?.cancel();
-    setOrbVariant("particles");
     setVoiceTranscript("");
     setVoiceNotice("");
     setVoiceElapsed(0);
@@ -515,15 +530,14 @@ export function CoachApp() {
     setVoiceMode("user");
   }
 
-  // Opens voice mode showing the WebGL mesh orb (used to preview the new orb
-  // from the "Create 3 recommended meal combinations" dashboard task).
+  // Opens voice mode from the "Create 3 recommended meal combinations"
+  // dashboard task.
   function openOrbPreview(taskTitle: string) {
     setActiveTaskTitle(taskTitle);
     setChatTitle("Meal combinations");
     setChatMode("general");
-    setView("chat");
+    navigateTo("chat");
     window.speechSynthesis?.cancel();
-    setOrbVariant("mesh");
     setVoiceTranscript("");
     setVoiceNotice("");
     setVoiceElapsed(0);
@@ -553,20 +567,17 @@ export function CoachApp() {
             : ""
         } ${isVoiceOpen && isLoading ? "is-streaming" : ""}`}
       >
-        <StatusBar />
-
         {voiceMode ? (
           <VoiceModeScreen
             aiLevel={aiLevel}
             elapsedSeconds={voiceElapsed}
             notice={voiceNotice}
-            orbVariant={orbVariant}
             phase={voiceMode}
             status={voiceStatus}
             thinkingSteps={thinkingSteps}
             title={chatTitle}
             transcript={voiceTranscript}
-            onBack={() => { closeVoiceMode(); setView("home"); }}
+            onBack={() => { closeVoiceMode(); navigateTo("home"); }}
             onClose={closeVoiceMode}
             onNoticeChange={setVoiceNotice}
             onStatusChange={setVoiceStatus}
@@ -578,26 +589,30 @@ export function CoachApp() {
             }
           />
         ) : view === "home" ? (
-          <HomeScreen
-            input={input}
-            onInputChange={setInput}
-            onInputKeyDown={handleComposerKeyDown}
-            onVoiceMode={openVoiceMode}
-            onOpenChat={() => {
-              setChatTitle("Marketing coach");
-              setChatMode("general");
-              setView("chat");
-            }}
-            onSend={() => void sendMessage()}
-            onFinancialSpot={startFinancialSpot}
-            onTaskPrompt={(prompt, taskTitle) => {
-              setActiveTaskTitle(taskTitle);
-              void sendMessage(prompt);
-            }}
-            onShowOrb={openOrbPreview}
-            completedTasks={completedTasks}
-          />
+          <div className={`view-screen z-0 ${viewPhase === "exit" ? "view-exit-to-chat" : viewPhase === "enter" ? "view-enter-from-chat" : ""}`}>
+            <HomeScreen
+              input={input}
+              onInputChange={setInput}
+              onInputKeyDown={handleComposerKeyDown}
+              onVoiceMode={openVoiceMode}
+              onOpenChat={() => {
+                setChatTitle("Marketing coach");
+                setChatMode("general");
+                navigateTo("chat");
+              }}
+              onSend={() => void sendMessage()}
+              onSendText={(text) => void sendMessage(text)}
+              onFinancialSpot={startFinancialSpot}
+              onTaskPrompt={(prompt, taskTitle) => {
+                setActiveTaskTitle(taskTitle);
+                void sendMessage(prompt);
+              }}
+              onShowOrb={openOrbPreview}
+              completedTasks={completedTasks}
+            />
+          </div>
         ) : (
+          <div className={`view-screen z-0 ${viewPhase === "exit" ? "view-exit-to-home" : viewPhase === "enter" ? "view-enter-from-home" : ""}`}>
           <ChatScreen
             chatMode={chatMode}
             title={chatTitle}
@@ -606,19 +621,18 @@ export function CoachApp() {
             isLoading={isLoading}
             messages={messages}
             thinkingSteps={thinkingSteps}
-            onBack={() => setView("home")}
+            onBack={() => navigateTo("home")}
             onInputChange={setInput}
             onInputKeyDown={handleComposerKeyDown}
             onSend={() => void sendMessage()}
+            onSendText={(text) => void sendMessage(text)}
             onSuggestion={(suggestion) => void sendMessage(suggestion)}
             onVoiceMode={openVoiceMode}
             onCompleteTask={completeActiveTask}
           />
+          </div>
         )}
 
-        <div className="pointer-events-none absolute inset-x-0 bottom-2 flex justify-center">
-          <div className="h-[5px] w-36 rounded-full bg-[#b7b8c5]" />
-        </div>
       </section>
     </main>
   );
@@ -632,6 +646,7 @@ function HomeScreen({
   onVoiceMode,
   onOpenChat,
   onSend,
+  onSendText,
   onTaskPrompt,
   onShowOrb,
   completedTasks,
@@ -643,24 +658,35 @@ function HomeScreen({
   onVoiceMode: () => void;
   onOpenChat: () => void;
   onSend: () => void;
+  onSendText: (text: string) => void;
   onTaskPrompt: (prompt: string, taskTitle: string) => void;
   onShowOrb: (taskTitle: string) => void;
   completedTasks: string[];
 }) {
+  const [greetingShown, setGreetingShown] = useState(false);
+
+  useEffect(() => {
+    const id = setTimeout(() => setGreetingShown(true), 80);
+    return () => clearTimeout(id);
+  }, []);
+
   return (
     <>
       <TopBar label="New task" onMenu={onOpenChat} />
 
       <section className="px-6 pt-[151px]">
-        <p className="text-[20px] leading-7 tracking-[-0.5px] text-[#2f3430]">
-          Good morning Marcos,
-          <br />
-          <span className="text-[#6f756f]">You have 3 tasks to be done today.</span>
-        </p>
+        <div className={`t-stagger${greetingShown ? " is-shown" : ""}`}>
+          <strong className="t-stagger-line t-stagger-line--1 text-[20px] font-normal leading-7 tracking-[-0.5px] text-[#2f3430]">
+            Good morning Marcos,
+          </strong>
+          <span className="t-stagger-line t-stagger-line--2 text-[20px] leading-7 tracking-[-0.5px] text-[#6f756f]">
+            You have 3 tasks to be done today.
+          </span>
+        </div>
       </section>
 
       <section className="mt-[78px] px-6">
-        <div className="mb-3 flex items-center justify-between">
+        <div className="dash-section-enter mb-3 flex items-center justify-between">
           <h1 className="text-base font-medium text-[#101511]">Today</h1>
           <button className="text-base font-medium text-[var(--brand)] transition active:scale-[0.98]">
             See all
@@ -732,6 +758,7 @@ function HomeScreen({
         onInputChange={onInputChange}
         onInputKeyDown={onInputKeyDown}
         onSend={onSend}
+        onSendText={onSendText}
         onVoiceMode={onVoiceMode}
         placeholder="Ask me anything..."
       />
@@ -750,6 +777,7 @@ function ChatScreen({
   onInputChange,
   onInputKeyDown,
   onSend,
+  onSendText,
   onSuggestion,
   onVoiceMode,
   onCompleteTask,
@@ -765,6 +793,7 @@ function ChatScreen({
   onInputChange: (value: string) => void;
   onInputKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void;
   onSend: () => void;
+  onSendText: (text: string) => void;
   onSuggestion: (suggestion: string) => void;
   onVoiceMode: () => void;
   onCompleteTask: () => void;
@@ -861,7 +890,11 @@ function ChatScreen({
                           : "glass-surface max-w-[82%] rounded-[24px] px-4 py-3 text-[15px] leading-6 text-[#303630]"
                     }`}
                   >
-                    {message.content || <TypingDots />}
+                    {message.content
+                      ? (message.role === "assistant" && isLoading
+                          ? <StreamingText text={message.content} />
+                          : message.content)
+                      : <TypingDots />}
                   </div>
                 </div>
               );
@@ -908,6 +941,7 @@ function ChatScreen({
         onInputChange={onInputChange}
         onInputKeyDown={onInputKeyDown}
         onSend={onSend}
+        onSendText={onSendText}
         onVoiceMode={onVoiceMode}
         placeholder="Ask the coach..."
       />
@@ -946,7 +980,9 @@ function FinancialChatHistory({
             key={message.id}
             className="message-enter whitespace-pre-wrap text-base font-medium leading-7 tracking-[-0.2px] text-[#080c09]"
           >
-            {message.content}
+            {isLoading
+              ? <StreamingText text={message.content} />
+              : message.content}
           </p>
         );
       })}
@@ -1015,12 +1051,55 @@ function TypingDots() {
   );
 }
 
+function StreamingText({ text }: { text: string }) {
+  // Split into word+trailing-space units so whitespace renders naturally.
+  const tokens = text.match(/\S+\s*/g) ?? (text ? [text] : []);
+
+  // Track which token index we last started animating from.
+  // Updating refs synchronously during render is safe here — no side effects,
+  // just bookkeeping that must be consistent within a single render pass.
+  const prevCountRef = useRef(0);
+  const animateFromRef = useRef(0);
+
+  if (tokens.length !== prevCountRef.current) {
+    animateFromRef.current = prevCountRef.current;
+    prevCountRef.current = tokens.length;
+  }
+
+  const animateFrom = animateFromRef.current;
+
+  return (
+    <>
+      {tokens.map((token, i) =>
+        i >= animateFrom ? (
+          <span
+            className="stream-word"
+            key={i}
+            style={
+              {
+                "--stream-delay": `${(i - animateFrom) * 16}ms`,
+              } as CSSProperties
+            }
+          >
+            {token}
+          </span>
+        ) : (
+          <span key={i}>{token}</span>
+        ),
+      )}
+    </>
+  );
+}
+
+type MicState = "idle" | "recording" | "transcribing";
+
 function Composer({
   input,
   isLoading = false,
   onInputChange,
   onInputKeyDown,
   onSend,
+  onSendText,
   onVoiceMode,
   placeholder,
 }: {
@@ -1029,11 +1108,36 @@ function Composer({
   onInputChange: (value: string) => void;
   onInputKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void;
   onSend: () => void;
+  onSendText?: (text: string) => void;
   onVoiceMode?: () => void;
   placeholder: string;
 }) {
   const hasInput = Boolean(input.trim());
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const [micState, setMicState] = useState<MicState>("idle");
+  const [waveLevel, setWaveLevel] = useState(0);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [menuPos, setMenuPos] = useState<{ left: number; bottom: number } | null>(null);
+
+  const plusBtnRef = useRef<HTMLButtonElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
+
+  const inputRef = useRef(input);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const animationRef = useRef(0);
+  const stopTimeoutRef = useRef(0);
+  const chunksRef = useRef<Blob[]>([]);
+  // Which action the pending stop should resolve to once audio is captured.
+  const pendingActionRef = useRef<"field" | "send" | "cancel">("field");
+
+  useEffect(() => {
+    inputRef.current = input;
+  });
 
   useEffect(() => {
     const el = textareaRef.current;
@@ -1042,15 +1146,227 @@ function Composer({
     el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
   }, [input]);
 
+  const stopMedia = useCallback(() => {
+    window.clearTimeout(stopTimeoutRef.current);
+    window.cancelAnimationFrame(animationRef.current);
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    void audioContextRef.current?.close();
+    streamRef.current = null;
+    audioContextRef.current = null;
+    mediaRecorderRef.current = null;
+  }, []);
+
+  useEffect(() => () => stopMedia(), [stopMedia]);
+
+  const transcribe = useCallback(
+    async (audio: Blob, mode: "field" | "send") => {
+      setMicState("transcribing");
+      setWaveLevel(0);
+
+      try {
+        const formData = new FormData();
+        const extension = audio.type.includes("mp4") ? "mp4" : "webm";
+        formData.append("audio", audio, `voice-input.${extension}`);
+
+        const response = await fetch("/api/transcribe", {
+          method: "POST",
+          body: formData,
+        });
+
+        if (!response.ok) throw new Error("Transcription failed.");
+
+        const { text } = (await response.json()) as { text?: string };
+        const trimmed = text?.trim();
+
+        if (trimmed) {
+          if (mode === "send" && onSendText) {
+            onSendText(trimmed);
+          } else {
+            const current = inputRef.current.trim();
+            onInputChange(current ? `${current} ${trimmed}` : trimmed);
+            requestAnimationFrame(() => textareaRef.current?.focus());
+          }
+        }
+      } catch {
+        /* Surface nothing destructive — leave the field as-is for the user. */
+      } finally {
+        setMicState("idle");
+      }
+    },
+    [onInputChange, onSendText],
+  );
+
+  const startRecording = useCallback(async () => {
+    if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) return;
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      });
+
+      streamRef.current = stream;
+      chunksRef.current = [];
+      pendingActionRef.current = "field";
+
+      const mimeType = getSupportedAudioMimeType();
+      const recorder = new MediaRecorder(
+        stream,
+        mimeType ? { mimeType } : undefined,
+      );
+      mediaRecorderRef.current = recorder;
+
+      const audioContext = new AudioContext();
+      audioContextRef.current = audioContext;
+      const source = audioContext.createMediaStreamSource(stream);
+      const analyser = audioContext.createAnalyser();
+      const samples = new Uint8Array(analyser.fftSize);
+      source.connect(analyser);
+
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) chunksRef.current.push(event.data);
+      };
+
+      recorder.onstop = () => {
+        stopMedia();
+        const action = pendingActionRef.current;
+
+        if (action === "cancel") {
+          setMicState("idle");
+          setWaveLevel(0);
+          return;
+        }
+
+        const audio = new Blob(chunksRef.current, {
+          type: recorder.mimeType || "audio/webm",
+        });
+
+        if (audio.size === 0) {
+          setMicState("idle");
+          setWaveLevel(0);
+          return;
+        }
+
+        void transcribe(audio, action);
+      };
+
+      const monitorVolume = () => {
+        analyser.getByteTimeDomainData(samples);
+        const volume =
+          samples.reduce((sum, value) => sum + Math.abs(value - 128), 0) /
+          samples.length;
+        setWaveLevel(Math.min(volume / 18, 1));
+        animationRef.current = window.requestAnimationFrame(monitorVolume);
+      };
+
+      recorder.start();
+      monitorVolume();
+      // Safety cap so a forgotten recording doesn't run forever.
+      stopTimeoutRef.current = window.setTimeout(() => {
+        if (mediaRecorderRef.current?.state === "recording") {
+          mediaRecorderRef.current.stop();
+        }
+      }, 30000);
+
+      setMicState("recording");
+    } catch {
+      stopMedia();
+      setMicState("idle");
+      setWaveLevel(0);
+    }
+  }, [stopMedia, transcribe]);
+
+  const stopToField = useCallback(() => {
+    pendingActionRef.current = "field";
+    if (mediaRecorderRef.current?.state === "recording") {
+      mediaRecorderRef.current.stop();
+    }
+  }, []);
+
+  const stopToSend = useCallback(() => {
+    pendingActionRef.current = "send";
+    if (mediaRecorderRef.current?.state === "recording") {
+      mediaRecorderRef.current.stop();
+    }
+  }, []);
+
+  const wrapperClass =
+    "rounded-[24px] border border-[rgba(26,26,26,0.09)] bg-[rgba(255,255,255,0.36)] shadow-[0px_169px_47px_0px_rgba(0,0,0,0),0px_108px_43px_0px_rgba(0,0,0,0.01),0px_61px_37px_0px_rgba(0,0,0,0.02),0px_27px_27px_0px_rgba(0,0,0,0.04),0px_7px_15px_0px_rgba(0,0,0,0.04)] backdrop-blur-[20px]";
+
+  if (micState !== "idle") {
+    const isRecording = micState === "recording";
+
+    return (
+      <div className="absolute inset-x-0 bottom-0 z-10 w-full px-4 pb-10 pt-5">
+        <div className={`${wrapperClass} flex w-full items-center gap-4 p-2`}>
+          <div className="flex min-w-0 flex-1 items-center gap-2">
+            {isRecording ? (
+              <button
+                aria-label="Stop and transcribe"
+                className="flex shrink-0 items-center justify-center rounded-[24px] p-2 text-[#5b625c] transition active:scale-95"
+                onClick={stopToField}
+                type="button"
+              >
+                <span className="size-3 rounded-[3px] bg-[rgba(26,26,26,0.72)]" />
+              </button>
+            ) : (
+              <span className="flex shrink-0 items-center justify-center p-2">
+                <span className="composer-spinner size-4 rounded-full border-2 border-[rgba(26,26,26,0.14)] border-t-[rgba(26,26,26,0.55)]" />
+              </span>
+            )}
+
+            {isRecording ? (
+              <div
+                aria-hidden="true"
+                className="flex h-4 min-w-0 flex-1 items-center gap-[2px] overflow-hidden text-[#858a86]"
+              >
+                {COMPOSER_WAVE_BARS.map((weight, index) => {
+                  const barHeight = Math.max(
+                    1,
+                    waveLevel * (weight / COMPOSER_WAVE_MAX) * 15,
+                  );
+                  return (
+                    <span
+                      className="w-px shrink-0 rounded-full bg-current transition-[height] duration-100 ease-out"
+                      key={`${weight}-${index}`}
+                      style={{ height: `${barHeight}px` }}
+                    />
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="min-w-0 flex-1 truncate text-base font-medium leading-6 tracking-[-0.16px] text-[rgba(26,26,26,0.6)]">
+                Transcribing...
+              </p>
+            )}
+          </div>
+
+          <button
+            aria-label="Stop and send"
+            className="flex shrink-0 items-center justify-center rounded-[24px] bg-white p-2 text-[var(--brand)] shadow-[0_10px_24px_-18px_rgba(31,36,31,0.7)] transition active:scale-95 disabled:opacity-50"
+            disabled={!isRecording || !onSendText}
+            onClick={stopToSend}
+            type="button"
+          >
+            <ArrowUp size={20} weight="bold" />
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <form
-      className="absolute inset-x-0 bottom-0 z-10 w-full px-4 pb-10 pt-5"
+      className="dash-composer-enter absolute inset-x-0 bottom-0 z-10 w-full px-4 pb-10 pt-5"
       onSubmit={(event) => {
         event.preventDefault();
         onSend();
       }}
     >
-      <div className="flex w-full flex-col gap-2 rounded-[24px] border border-[rgba(26,26,26,0.09)] bg-[rgba(255,255,255,0.36)] px-2 pb-2 pt-3 shadow-[0px_169px_47px_0px_rgba(0,0,0,0),0px_108px_43px_0px_rgba(0,0,0,0.01),0px_61px_37px_0px_rgba(0,0,0,0.02),0px_27px_27px_0px_rgba(0,0,0,0.04),0px_7px_15px_0px_rgba(0,0,0,0.04)] backdrop-blur-[20px]">
+      <div className={`${wrapperClass} flex w-full flex-col gap-2 px-2 pb-2 pt-3`}>
         <div className="flex w-full items-center px-3">
           <textarea
             ref={textareaRef}
@@ -1065,18 +1381,110 @@ function Composer({
         </div>
 
         <div className="flex w-full items-end justify-between">
-          <button
-            aria-label="Create a new task"
-            className="flex items-center justify-center rounded-[24px] p-2 text-[#9aa29a] transition active:scale-95"
-            type="button"
-          >
-            <Plus size={20} weight="bold" />
-          </button>
+          <div className="relative">
+            {menuOpen && menuPos
+              ? createPortal(
+                  <>
+                    <div
+                      className="fixed inset-0 z-[9998]"
+                      onClick={() => setMenuOpen(false)}
+                    />
+                    <div
+                      className="composer-menu-enter fixed z-[9999] w-[238px] rounded-[24px] shadow-[0px_67px_19px_0px_rgba(0,0,0,0),0px_43px_17px_0px_rgba(0,0,0,0.01),0px_24px_15px_0px_rgba(0,0,0,0.02),0px_11px_11px_0px_rgba(0,0,0,0.03),0px_3px_6px_0px_rgba(0,0,0,0.04)] backdrop-blur-[10px]"
+                      style={{
+                        left: menuPos.left,
+                        bottom: menuPos.bottom,
+                      }}
+                    >
+                      <div className="overflow-hidden rounded-[24px] border border-[rgba(26,26,26,0.09)] bg-[rgba(255,255,255,0.6)]">
+                        <div className="flex flex-col px-6 py-2">
+                          <button
+                            className="flex items-center gap-2 border-b border-[rgba(26,26,26,0.06)] py-4 text-left text-base font-medium leading-6 text-[rgba(26,26,26,0.6)] transition active:opacity-60"
+                            onClick={() => { setMenuOpen(false); cameraInputRef.current?.click(); }}
+                            type="button"
+                          >
+                            <Camera size={24} />
+                            Camera
+                          </button>
+                          <button
+                            className="flex items-center gap-2 border-b border-[rgba(26,26,26,0.06)] py-4 text-left text-base font-medium leading-6 text-[rgba(26,26,26,0.6)] transition active:opacity-60"
+                            onClick={() => { setMenuOpen(false); fileInputRef.current?.click(); }}
+                            type="button"
+                          >
+                            <FilePlus size={24} />
+                            Upload file
+                          </button>
+                          <button
+                            className="flex items-center gap-2 py-4 text-left text-base font-medium leading-6 text-[rgba(26,26,26,0.6)] transition active:opacity-60"
+                            onClick={() => { setMenuOpen(false); imageInputRef.current?.click(); }}
+                            type="button"
+                          >
+                            <ImageIcon size={24} />
+                            Upload image
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </>,
+                  document.body,
+                )
+              : null}
+
+            <button
+              ref={plusBtnRef}
+              aria-label={menuOpen ? "Close menu" : "Add attachment"}
+              aria-expanded={menuOpen}
+              className={`flex items-center justify-center rounded-[24px] p-2 transition-[transform,background-color,color] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] active:scale-95 ${
+                menuOpen
+                  ? "rotate-[225deg] bg-[rgba(26,26,26,0.09)] text-[rgba(26,26,26,0.7)]"
+                  : "rotate-0 text-[#9aa29a]"
+              }`}
+              onClick={() => {
+                if (!menuOpen) {
+                  const rect = plusBtnRef.current?.getBoundingClientRect();
+                  if (rect) {
+                    setMenuPos({
+                      left: rect.left,
+                      bottom: window.innerHeight - rect.top + 8,
+                    });
+                  }
+                }
+                setMenuOpen((open) => !open);
+              }}
+              type="button"
+            >
+              <Plus size={20} weight="bold" />
+            </button>
+          </div>
+
+          <input
+            ref={cameraInputRef}
+            accept="image/*"
+            capture="environment"
+            className="hidden"
+            onChange={(event) => { event.target.value = ""; }}
+            type="file"
+          />
+          <input
+            ref={fileInputRef}
+            className="hidden"
+            onChange={(event) => { event.target.value = ""; }}
+            type="file"
+          />
+          <input
+            ref={imageInputRef}
+            accept="image/*"
+            className="hidden"
+            onChange={(event) => { event.target.value = ""; }}
+            type="file"
+          />
 
           <div className="flex items-center gap-0.5">
             <button
-              aria-label="Voice input"
-              className="flex items-center justify-center rounded-[24px] p-2 text-[#9ba49c] transition active:scale-95"
+              aria-label="Record voice message"
+              className="flex items-center justify-center rounded-[24px] p-2 text-[#9ba49c] transition active:scale-95 disabled:opacity-50"
+              disabled={isLoading}
+              onClick={() => void startRecording()}
               type="button"
             >
               <Microphone size={20} />
@@ -1115,7 +1523,6 @@ function VoiceModeScreen({
   onNoticeChange,
   onStatusChange,
   onTogglePhase,
-  orbVariant,
   phase,
   status,
   thinkingSteps,
@@ -1133,7 +1540,6 @@ function VoiceModeScreen({
   onNoticeChange: (notice: string) => void;
   onStatusChange: (status: VoiceStatus) => void;
   onTogglePhase: () => void;
-  orbVariant: OrbVariant;
   phase: "user" | "ai";
   status: VoiceStatus;
   thinkingSteps: string[];
@@ -1521,7 +1927,7 @@ function VoiceModeScreen({
         ) : null}
       </section>
 
-      <div className="voice-orb-enter absolute left-1/2 top-[600px]">
+      <div className="voice-orb-enter absolute bottom-[80px] left-1/2">
         <button
           aria-label={
             isUserSpeaking
@@ -1532,23 +1938,21 @@ function VoiceModeScreen({
           onClick={onTogglePhase}
           type="button"
         >
-          {orbVariant === "mesh" ? (
-            <VoiceOrbMesh
-              speaker={isUserSpeaking ? "user" : "ai"}
-              level={isUserSpeaking ? volumeLevel : aiLevel}
-              surface="light"
-              size={128}
-            />
-          ) : (
-            <VoiceOrbParticles
-              speaker={isUserSpeaking ? "user" : "ai"}
-              level={isUserSpeaking ? volumeLevel : aiLevel}
-              userColor="#F28705"
-              aiColor="#106844"
-              surface="light"
-              size={128}
-            />
-          )}
+          <VoiceOrbCluster
+            speaker={
+              isUserSpeaking
+                ? status === "processing" || status === "transcribing"
+                  ? "user-processing"
+                  : "user"
+                : status === "processing"
+                  ? "processing"
+                  : "ai"
+            }
+            level={isUserSpeaking ? volumeLevel : aiLevel}
+            userColor="#F28705"
+            aiColor="#106844"
+            size={160}
+          />
           <span className="sr-only">
             {isUserSpeaking ? "User speaking" : "AI speaking"}
           </span>
@@ -1650,6 +2054,11 @@ function formatTimer(totalSeconds: number) {
   return `${minutes}:${seconds}`;
 }
 
+const COMPOSER_WAVE_BARS = Array.from({ length: 80 }, (_, i) =>
+  4 + Math.round(Math.abs(Math.sin(i * 1.7) * 12)),
+);
+const COMPOSER_WAVE_MAX = Math.max(...COMPOSER_WAVE_BARS);
+
 function getSupportedAudioMimeType() {
   const supportedTypes = [
     "audio/webm;codecs=opus",
@@ -1677,21 +2086,3 @@ function TopBar({ label, onMenu }: { label: string; onMenu: () => void }) {
   );
 }
 
-function StatusBar() {
-  return (
-    <div className="absolute inset-x-0 top-0 z-20 flex h-[60px] items-center justify-between px-12 pt-1 text-[#111611]">
-      <span className="text-[17px] font-semibold leading-none">9:41</span>
-      <div className="flex items-center gap-1.5">
-        <div className="flex h-4 items-end gap-[2px]">
-          <span className="h-1.5 w-1 rounded-full bg-[#111611]" />
-          <span className="h-2.5 w-1 rounded-full bg-[#111611]" />
-          <span className="h-3.5 w-1 rounded-full bg-[#111611]" />
-        </div>
-        <div className="h-3 w-4 rounded-full border-2 border-[#111611] border-t-transparent" />
-        <div className="flex h-[13px] w-[27px] items-center rounded-[4px] border border-[#111611] p-[2px]">
-          <div className="h-full w-4 rounded-[2px] bg-[#111611]" />
-        </div>
-      </div>
-    </div>
-  );
-}

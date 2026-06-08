@@ -13,6 +13,51 @@
   --bg-pulsed: #d2e3dc;
   --bg-user-default: #edebe6;
   --bg-user-pulsed: #ded7cf;
+
+  --stagger-dur: 600ms;
+  --stagger-distance: 12px;
+  --stagger-stagger: 60ms;
+  --stagger-blur: 3px;
+  --stagger-ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.t-stagger-line {
+  display: block;
+  opacity: 0;
+  transform: translateY(var(--stagger-distance));
+  filter: blur(var(--stagger-blur));
+  transition:
+    opacity var(--stagger-dur) var(--stagger-ease),
+    transform var(--stagger-dur) var(--stagger-ease),
+    filter var(--stagger-dur) var(--stagger-ease);
+  will-change: transform, opacity, filter;
+}
+
+.t-stagger-line--2 {
+  transition-delay: var(--stagger-stagger);
+}
+
+.t-stagger.is-shown .t-stagger-line {
+  opacity: 1;
+  transform: translateY(0);
+  filter: blur(0);
+}
+
+.t-stagger.is-hiding .t-stagger-line {
+  opacity: 0;
+  transform: translateY(0);
+  filter: blur(0);
+  transition:
+    opacity 200ms ease,
+    transform 0s linear,
+    filter 0s linear;
+  transition-delay: 0s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .t-stagger-line {
+    transition: none !important;
+  }
 }
 
 @theme inline {
@@ -218,9 +263,36 @@ button {
   animation: message-enter 360ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
+.dash-greeting-enter {
+  animation: message-enter 500ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation-delay: 80ms;
+}
+
+.dash-section-enter {
+  animation: message-enter 460ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation-delay: 200ms;
+}
+
 .task-enter {
-  animation: message-enter 420ms cubic-bezier(0.16, 1, 0.3, 1) both;
-  animation-delay: calc(var(--index) * 80ms);
+  animation: message-enter 440ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation-delay: calc(320ms + var(--index) * 110ms);
+}
+
+.dash-composer-enter {
+  animation: dash-composer-slide 500ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation-delay: 300ms;
+}
+
+@keyframes dash-composer-slide {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .voice-orb-enter {
@@ -230,6 +302,39 @@ button {
 
 .voice-copy-fade {
   animation: voice-copy-fade-out 260ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.composer-spinner {
+  animation: composer-spin 700ms linear infinite;
+}
+
+.composer-menu-enter {
+  animation: composer-menu-pop 240ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  transform-origin: bottom left;
+}
+
+@keyframes composer-menu-pop {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.94);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .composer-menu-enter {
+    animation: none;
+  }
+}
+
+@keyframes composer-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .voice-input-enter {
@@ -278,6 +383,64 @@ button {
   }
 }
 
+/* ── View transitions (Apple push/pop) ──────────────────────────────────── */
+
+.view-screen {
+  position: absolute;
+  inset: 0;
+}
+
+/* Home → Chat: home slides left+fades out, chat slides in from right */
+@keyframes exit-to-chat {
+  from { opacity: 1; transform: translateX(0) scale(1); }
+  to   { opacity: 0; transform: translateX(-18px) scale(0.97); }
+}
+
+@keyframes enter-from-home {
+  from { opacity: 0; transform: translateX(28px) scale(0.98); }
+  to   { opacity: 1; transform: translateX(0) scale(1); }
+}
+
+/* Chat → Home: chat slides right+fades out, home slides in from left */
+@keyframes exit-to-home {
+  from { opacity: 1; transform: translateX(0) scale(1); }
+  to   { opacity: 0; transform: translateX(28px) scale(0.98); }
+}
+
+@keyframes enter-from-chat {
+  from { opacity: 0; transform: translateX(-18px) scale(0.97); }
+  to   { opacity: 1; transform: translateX(0) scale(1); }
+}
+
+.view-exit-to-chat {
+  animation: exit-to-chat 220ms cubic-bezier(0.4, 0, 1, 1) both;
+  pointer-events: none;
+}
+
+.view-enter-from-home {
+  animation: enter-from-home 320ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.view-exit-to-home {
+  animation: exit-to-home 220ms cubic-bezier(0.4, 0, 1, 1) both;
+  pointer-events: none;
+}
+
+.view-enter-from-chat {
+  animation: enter-from-chat 320ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .view-exit-to-chat,
+  .view-exit-to-home,
+  .view-enter-from-home,
+  .view-enter-from-chat {
+    animation: none;
+  }
+}
+
+/* ── Message enter ───────────────────────────────────────────────────────── */
+
 @keyframes message-enter {
   from {
     opacity: 0;
@@ -287,6 +450,31 @@ button {
   to {
     opacity: 1;
     transform: translateY(0) scale(1);
+  }
+}
+
+/* Apple-style streaming text — each word fades up individually */
+@keyframes stream-word {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.stream-word {
+  animation: stream-word 240ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: var(--stream-delay, 0ms);
+  display: inline;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stream-word {
+    animation: none;
   }
 }
 

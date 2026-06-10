@@ -1,0 +1,22 @@
+<svg preserveAspectRatio="none" width="100%" height="100%" overflow="visible" style="display: block;" viewBox="0 0 390 844" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g id="Home-Plan-voice-mode-warm" clip-path="url(#clip0_0_9)">
+<g id="Subtract" filter="url(#filter0_f_0_9)">
+<path d="M522 897H-132V585H0C0 647.96 87.3045 699 195 699C302.696 699 390 647.96 390 585H522V897Z" fill="url(#paint0_radial_0_9)"/>
+</g>
+</g>
+<defs>
+<filter id="filter0_f_0_9" x="-222" y="495" width="834" height="492" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+<feFlood flood-opacity="0" result="BackgroundImageFix"/>
+<feBlend mode="normal" in="SourceGraphic" in2="BackgroundImageFix" result="shape"/>
+<feGaussianBlur stdDeviation="45" result="effect1_foregroundBlur_0_9"/>
+</filter>
+<radialGradient id="paint0_radial_0_9" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(195 585) rotate(90) scale(265 708.935)">
+<stop stop-color="#FFC75E"/>
+<stop offset="0.55" stop-color="#F28705"/>
+<stop offset="1" stop-color="#D93D04"/>
+</radialGradient>
+<clipPath id="clip0_0_9">
+<rect width="390" height="844" fill="white"/>
+</clipPath>
+</defs>
+</svg>

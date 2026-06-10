@@ -134,16 +134,19 @@ export default function VoiceOrbCluster({
   const speakerRef = useRef(speaker);
   const levelRef   = useRef(level);
   const sizeRef    = useRef(size);
-  speakerRef.current = speaker;
-  levelRef.current   = level;
-  sizeRef.current    = size;
 
   const userRamp = useRef(buildRamp(userColor));
   const aiRamp   = useRef(buildRamp(aiColor));
   const idleRamp = useRef(buildRamp(idleColor ?? aiColor));
-  userRamp.current = buildRamp(userColor);
-  aiRamp.current   = buildRamp(aiColor);
-  idleRamp.current = buildRamp(idleColor ?? aiColor);
+
+  useEffect(() => {
+    speakerRef.current = speaker;
+    levelRef.current   = level;
+    sizeRef.current    = size;
+    userRamp.current   = buildRamp(userColor);
+    aiRamp.current     = buildRamp(aiColor);
+    idleRamp.current   = buildRamp(idleColor ?? aiColor);
+  });
 
   /* ---- audio ---- */
   const audioCtxRef  = useRef<AudioContext | null>(null);

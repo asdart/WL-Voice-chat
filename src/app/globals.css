@@ -175,44 +175,55 @@ button {
     thinking-gradient-drift 6s ease-in-out infinite;
 }
 
+/* While thinking we keep the same calm background as the rest of voice mode
+   (and the dashboard) — no saturated green wash. */
 .chat-shell-coach.is-streaming {
-  background-image:
-    radial-gradient(
-      circle at 24% 88%,
-      rgba(16, 104, 68, 0.16),
-      transparent 34%
-    ),
-    radial-gradient(
-      circle at 78% 18%,
-      rgba(177, 197, 180, 0.34),
-      transparent 36%
-    ),
-    linear-gradient(
-      135deg,
-      rgba(255, 255, 255, 0.98) 0%,
-      rgba(232, 242, 238, 0.94) 48%,
-      rgba(210, 227, 220, 0.78) 100%
-    );
+  background-image: linear-gradient(to bottom, #ffffff 0%, #e6edea 62.678%);
 }
 
 .chat-shell-user.is-streaming {
-  background-image:
-    radial-gradient(
-      circle at 26% 88%,
-      rgba(242, 135, 5, 0.16),
-      transparent 34%
-    ),
-    radial-gradient(
-      circle at 78% 18%,
-      rgba(242, 160, 154, 0.28),
-      transparent 36%
-    ),
-    linear-gradient(
-      135deg,
-      rgba(255, 255, 255, 0.98) 0%,
-      rgba(250, 246, 240, 0.94) 48%,
-      rgba(222, 215, 207, 0.78) 100%
-    );
+  background-image: linear-gradient(
+    to bottom,
+    #ffffff 0%,
+    rgba(250, 249, 246, 0.94) 46%,
+    rgba(237, 235, 230, 0.78) 100%
+  );
+}
+
+/* Voice-mode answer: each letter reveals with a quiet rise + deblur as it's
+   spoken (matches the Transitions.dev "texts reveal" feel). Letters mount over
+   time in sync with the voice, so they stagger naturally. Words are wrapped so
+   they never break mid-word. */
+@keyframes voice-answer-char-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+    filter: blur(3px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
+  }
+}
+
+.voice-answer-word {
+  display: inline-block;
+  white-space: nowrap;
+}
+
+.voice-answer-char {
+  display: inline-block;
+  white-space: pre;
+  animation: voice-answer-char-reveal 600ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  will-change: transform, opacity, filter;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .voice-answer-char {
+    animation: none;
+  }
 }
 
 .thinking-card {

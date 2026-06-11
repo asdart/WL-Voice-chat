@@ -104,6 +104,7 @@ export function CoachApp() {
   const [voiceStatus, setVoiceStatus] = useState<VoiceStatus>("idle");
   const [voiceElapsed, setVoiceElapsed] = useState(0);
   const [voiceTranscript, setVoiceTranscript] = useState("");
+  const [voiceAnswer, setVoiceAnswer] = useState("");
   const [voiceNotice, setVoiceNotice] = useState("");
   const [aiLevel, setAiLevel] = useState(0);
   const [input, setInput] = useState("");
@@ -161,6 +162,11 @@ export function CoachApp() {
     }
     const audio = thinkingAudioRef.current;
     const TARGET_VOLUME = 0.12; // keep it well under the coach's voice
+    const STEP_MS = 40;
+    const FADE_IN_MS = 1200; // gentle ramp up at the start
+    const FADE_OUT_MS = 1400; // gentle ramp down at the end
+    const fadeInStep = TARGET_VOLUME / (FADE_IN_MS / STEP_MS);
+    const fadeOutStep = TARGET_VOLUME / (FADE_OUT_MS / STEP_MS);
 
     window.clearInterval(thinkingFadeRef.current);
 
@@ -170,17 +176,17 @@ export function CoachApp() {
         /* autoplay may be blocked until a user gesture; safe to ignore */
       });
       thinkingFadeRef.current = window.setInterval(() => {
-        audio.volume = Math.min(TARGET_VOLUME, audio.volume + 0.02);
+        audio.volume = Math.min(TARGET_VOLUME, audio.volume + fadeInStep);
         if (audio.volume >= TARGET_VOLUME) window.clearInterval(thinkingFadeRef.current);
-      }, 40);
+      }, STEP_MS);
     } else {
       thinkingFadeRef.current = window.setInterval(() => {
-        audio.volume = Math.max(0, audio.volume - 0.03);
+        audio.volume = Math.max(0, audio.volume - fadeOutStep);
         if (audio.volume <= 0) {
           audio.pause();
           window.clearInterval(thinkingFadeRef.current);
         }
-      }, 40);
+      }, STEP_MS);
     }
 
     return () => window.clearInterval(thinkingFadeRef.current);
@@ -435,6 +441,7 @@ export function CoachApp() {
       const currentRequest = ++requestId.current;
 
       setVoiceTranscript(trimmed);
+      setVoiceAnswer("");
       setVoiceNotice("");
       setVoiceMode("ai");
       setVoiceStatus("processing");
@@ -455,12 +462,15 @@ export function CoachApp() {
 
       if (requestId.current !== currentRequest || !voiceMode) return;
 
+      // Reveal the answer in the chat while the coach speaks it aloud.
+      setVoiceAnswer(responseText);
       setVoiceStatus("speaking");
       await speakText(responseText);
 
       if (requestId.current !== currentRequest) return;
 
       setVoiceTranscript("");
+      setVoiceAnswer("");
       setVoiceMode("user");
       setVoiceStatus("listening");
     },
@@ -522,6 +532,7 @@ export function CoachApp() {
     window.speechSynthesis?.cancel();
     setAiLevel(0);
     setVoiceTranscript("");
+    setVoiceAnswer("");
     setVoiceNotice("");
     setVoiceMode("user");
     setVoiceStatus("listening");
@@ -644,6 +655,7 @@ export function CoachApp() {
             thinkingSteps={thinkingSteps}
             title={chatTitle}
             transcript={voiceTranscript}
+            aiAnswer={voiceAnswer}
             onBack={() => { closeVoiceMode(); navigateTo("home"); }}
             onClose={closeVoiceMode}
             onNoticeChange={setVoiceNotice}
@@ -1681,6 +1693,7 @@ function VoiceModeScreen({
   thinkingSteps,
   title,
   transcript,
+  aiAnswer,
 }: {
   aiLevel: number;
   elapsedSeconds: number;
@@ -1698,12 +1711,67 @@ function VoiceModeScreen({
   thinkingSteps: string[];
   title: string;
   transcript: string;
+  aiAnswer: string;
 }) {
   const isUserSpeaking = phase === "user";
   const isThinking = status === "processing";
   const [volumeLevel, setVolumeLevel] = useState(0);
+  const [revealedChars, setRevealedChars] = useState(0);
   const scrollRef = useRef<HTMLElement>(null);
   const transcriptRef = useRef<HTMLParagraphElement>(null);
+  const answerRef = useRef<HTMLDivElement>(null);
+  const scrollAnimRef = useRef(0);
+
+  // Write the coach's answer into the chat while it's being spoken aloud,
+  // revealing it letter by letter. Each new letter animates in (fade + rise +
+  // deblur), and the pacing tracks the spoken delivery so text and voice stay
+  // in sync (caption-style).
+  useEffect(() => {
+    if (!aiAnswer) {
+      setRevealedChars(0);
+      return;
+    }
+    const wordCount = aiAnswer.trim().split(/\s+/).filter(Boolean).length || 1;
+    const totalMs = wordCount * 360; // ~ speaking pace at rate 0.95
+    const stepMs = Math.max(16, Math.round(totalMs / aiAnswer.length));
+    let i = 0;
+    setRevealedChars(0);
+    const id = window.setInterval(() => {
+      i += 1;
+      setRevealedChars(i);
+      if (i >= aiAnswer.length) window.clearInterval(id);
+    }, stepMs);
+    return () => window.clearInterval(id);
+  }, [aiAnswer]);
+
+  // As letters reveal, keep the latest text above the orb zone: when the
+  // text's bottom edge nears the orb, scroll the container down (teleprompter
+  // style) so the words never overlap the particles. The scroll glides with a
+  // 400ms ease-out each time it needs to move.
+  useEffect(() => {
+    const el = scrollRef.current;
+    const ans = answerRef.current;
+    if (!el || !ans || revealedChars === 0) return;
+    // Keep the answer's bottom ~340px above the container bottom — that line
+    // sits just above the orb, which is anchored in the lower zone.
+    const ORB_SAFE = 340;
+    const target = ans.offsetTop + ans.offsetHeight - (el.clientHeight - ORB_SAFE);
+    if (target <= el.scrollTop) return;
+
+    const from = el.scrollTop;
+    const distance = target - from;
+    const duration = 400;
+    const start = performance.now();
+    const easeOut = (t: number) => 1 - Math.pow(1 - t, 3); // cubic ease-out
+
+    const step = (now: number) => {
+      const t = Math.min(1, (now - start) / duration);
+      el.scrollTop = from + distance * easeOut(t);
+      if (t < 1) scrollAnimRef.current = requestAnimationFrame(step);
+    };
+    scrollAnimRef.current = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(scrollAnimRef.current);
+  }, [revealedChars]);
 
   // When the user's words become a bubble, push the conversation up so the
   // bubble rests 24px below the top bar (ChatGPT-style). The thinking steps
@@ -2132,6 +2200,42 @@ function VoiceModeScreen({
         {isThinking ? (
           <div className="thinking-rise mt-6">
             <ThinkingProcess steps={thinkingSteps} />
+          </div>
+        ) : null}
+        {revealedChars > 0 ? (
+          <div
+            ref={answerRef}
+            className="mt-6 whitespace-pre-wrap text-base font-medium leading-7 tracking-[-0.2px] text-[#080c09]"
+          >
+            {(() => {
+              // Tokenise the revealed text into words and whitespace. Words are
+              // wrapped in an inline-block so they never break mid-word; each
+              // letter animates in on mount. Stable per-letter keys (absolute
+              // index) mean already-shown letters never re-animate.
+              const visible = aiAnswer.slice(0, revealedChars);
+              const tokens = visible.match(/\S+|\s+/g) ?? [];
+              let idx = 0;
+              return tokens.map((tok, ti) => {
+                if (/^\s+$/.test(tok)) {
+                  const start = idx;
+                  idx += tok.length;
+                  return <span key={`s${start}`}>{tok}</span>;
+                }
+                const letters = tok.split("").map((ch) => {
+                  const k = idx++;
+                  return (
+                    <span key={k} className="voice-answer-char">
+                      {ch}
+                    </span>
+                  );
+                });
+                return (
+                  <span key={`w${ti}`} className="voice-answer-word">
+                    {letters}
+                  </span>
+                );
+              });
+            })()}
           </div>
         ) : null}
         {notice ? (

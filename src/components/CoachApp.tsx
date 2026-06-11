@@ -2148,7 +2148,7 @@ function VoiceModeScreen({
   // talks, TTS amplitude when the AI talks). The user gets a warm sunset glow;
   // the AI keeps the green glow.
   const speakingLevel = Math.min(1, isUserSpeaking ? volumeLevel : aiLevel);
-  const backdropOpacity = 0.2 + speakingLevel * 0.2;
+  const backdropOpacity = 0.2 + speakingLevel * 0.1;
 
   return (
     <>
@@ -2262,7 +2262,7 @@ function VoiceModeScreen({
           <VoiceOrbCluster
             speaker={
               isUserSpeaking
-                ? status === "processing" || status === "transcribing"
+                ? status === "processing"
                   ? "user-processing"
                   : "user"
                 : status === "processing"

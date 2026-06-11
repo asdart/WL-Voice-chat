@@ -482,8 +482,8 @@ button {
 }
 
 @keyframes enter-from-home {
-  from { opacity: 0; transform: translateX(28px) scale(0.98); }
-  to   { opacity: 1; transform: translateX(0) scale(1); }
+  from { opacity: 0; transform: translateY(40px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
 }
 
 /* Chat → Home: chat slides right+fades out, home slides in from left */

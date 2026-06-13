@@ -18,7 +18,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { createPortal } from "react-dom";
 import { IconChevronRight } from "@tabler/icons-react";
 import { TextShimmer } from "./agent-elements/text-shimmer";
-import VoiceOrbCluster from "./VoiceOrbCluster";
+import VoiceOrbClusterAvatar from "./VoiceOrbClusterAvatar";
 
 type Message = {
   id: string;
@@ -359,6 +359,15 @@ export function CoachApp() {
       utterance.rate = 0.95;
       utterance.pitch = 1;
 
+      // Pick "Alex" (macOS male) with fallbacks.
+      const voices = window.speechSynthesis.getVoices();
+      const voice =
+        voices.find((v) => v.name === "Alex") ??
+        voices.find((v) => v.lang.startsWith("en") && v.localService) ??
+        voices[0] ??
+        null;
+      if (voice) utterance.voice = voice;
+
       let decayTimer = 0;
       let fallbackTimer = 0;
       let pollTimer = 0;
@@ -380,11 +389,16 @@ export function CoachApp() {
         hasSpoken = true;
         setAiLevel(prefersReducedMotion ? 0.6 : 0.45);
       };
+      let boundaryCount = 0;
       utterance.onboundary = () => {
         if (prefersReducedMotion) return;
-        setAiLevel(1);
+        boundaryCount++;
+        // Only pulse every 3–4 words so the background syncs to phrases,
+        // not to every single word boundary.
+        if (boundaryCount % 3 !== 0) return;
+        setAiLevel(0.7);
         window.clearTimeout(decayTimer);
-        decayTimer = window.setTimeout(() => setAiLevel(0.4), 110);
+        decayTimer = window.setTimeout(() => setAiLevel(0.3), 300);
       };
       utterance.onend = finish;
       // "canceled" / "interrupted" fire on Chrome when cancel() is called right
@@ -2148,7 +2162,7 @@ function VoiceModeScreen({
   // talks, TTS amplitude when the AI talks). The user gets a warm sunset glow;
   // the AI keeps the green glow.
   const speakingLevel = Math.min(1, isUserSpeaking ? volumeLevel : aiLevel);
-  const backdropOpacity = 0.2 + speakingLevel * 0.1;
+  const backdropOpacity = 0.15 + speakingLevel * 0.07;
 
   return (
     <>
@@ -2259,7 +2273,7 @@ function VoiceModeScreen({
           onClick={onTogglePhase}
           type="button"
         >
-          <VoiceOrbCluster
+          <VoiceOrbClusterAvatar
             speaker={
               isUserSpeaking
                 ? status === "processing"
@@ -2272,7 +2286,8 @@ function VoiceModeScreen({
             level={isUserSpeaking ? volumeLevel : aiLevel}
             userColor="#F28705"
             aiColor="#106844"
-            size={160}
+            size={220}
+            avatarSize={104}
           />
           <span className="sr-only">
             {isUserSpeaking ? "User speaking" : "AI speaking"}
